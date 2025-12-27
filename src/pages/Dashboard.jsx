@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
+import { useNavigate } from 'react-router-dom'; // ADICIONADO
 import { 
   Shield, LogOut, Gamepad2, BarChart3, Lock, Star,
   Layers, Wind, Heart, Brain, Bone, ArrowRight, Volume2, VolumeX
@@ -111,6 +112,7 @@ const difficultyConfig = {
 
 export default function Dashboard() {
   const { user, logout, isAuthenticated } = useAuth();
+  const navigate = useNavigate(); // ADICIONADO: para navegação
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedLevel, setSelectedLevel] = useState(null);
@@ -210,7 +212,7 @@ export default function Dashboard() {
     }
   };
 
-  // Função para jogar fase selecionada
+  // ✅ ATUALIZADO: Função para jogar fase selecionada
   const handlePlayLevel = (level) => {
     if (!level.unlocked) {
       alert(`🔒 ${level.lockedMessage || 'Fase bloqueada! Complete as fases anteriores.'}`);
@@ -218,7 +220,18 @@ export default function Dashboard() {
     }
     
     console.log(`🎮 Iniciando fase: ${level.name} (${selectedDifficulty})`);
-    alert(`🚀 Iniciando ${level.name} no modo ${selectedDifficulty.toUpperCase()}!\n\nEsta funcionalidade será integrada com o jogo Tower Defense em breve.`);
+    
+    // Verifica se é a fase 1 (Pele)
+    if (level.id === 1) {
+      // Salva a dificuldade no localStorage para a fase usar
+      localStorage.setItem('virus-hunter-difficulty', selectedDifficulty);
+      localStorage.setItem('virus-hunter-level', level.id.toString());
+      
+      // Navega para a fase 1
+      navigate('/phase1');
+    } else {
+      alert(`🚧 Fase ${level.id} em desenvolvimento!\nPor enquanto, jogue a Fase 1: Pele.`);
+    }
   };
 
   // Verificar pontuação da fase
@@ -282,10 +295,8 @@ export default function Dashboard() {
             
             <div className="flex items-center space-x-3">
               {/* Botão de controle de som */}
-             <button
+              <button
                 onClick={toggleSound}
-              
-                //className="fixed top-4 right-20 bg-emerald-600/30 hover:bg-emerald-600/30 text-white px-4 py-2 rounded-lg z-50 border border-emerald-500/30 backdrop-blur-sm flex items-center gap-2 transition-all hover:scale-105"
                 className={`px-3 py-2 rounded-lg border backdrop-blur-sm flex items-center gap-2 transition-all hover:scale-105 ${
                   audioSettings.soundEnabled 
                     ? 'bg-emerald-600/30 border-emerald-500/30 text-emerald-300' 
@@ -427,9 +438,9 @@ export default function Dashboard() {
                           <span className="text-slate-400 text-sm">{level.waves} ondas</span>
                           <button
                             onClick={() => handlePlayLevel(level)}
-                            className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
+                            className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all ${
                               level.unlocked
-                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white hover:scale-105'
                                 : 'bg-gray-700 text-gray-400 cursor-not-allowed'
                             }`}
                           >
@@ -496,7 +507,7 @@ export default function Dashboard() {
         {/* Botões de navegação */}
         <div className="flex flex-col md:flex-row gap-4 justify-between">
           <button
-            onClick={() => window.location.href = '/home'}
+            onClick={() => navigate('/home')}
             className="px-6 py-3 bg-emerald-600/30 hover:bg-emerald-600/40 text-white rounded-lg border border-emerald-500/30 transition-all hover:scale-105"
           >
             ← Voltar para Home Page
@@ -505,13 +516,13 @@ export default function Dashboard() {
           <div className="flex gap-3">
             <button
               onClick={() => alert('🏆 Sistema de conquistas em desenvolvimento!')}
-              className="px-6 py-3 bg-purple-600/30 hover:bg-purple-600/40 text-white rounded-lg border border-purple-500/30 transition-all"
+              className="px-6 py-3 bg-purple-600/30 hover:bg-purple-600/40 text-white rounded-lg border border-purple-500/30 transition-all hover:scale-105"
             >
               Ver Conquistas
             </button>
             <button
               onClick={() => alert('📚 Tutoriais em desenvolvimento!')}
-              className="px-6 py-3 bg-blue-600/30 hover:bg-blue-600/40 text-white rounded-lg border border-blue-500/30 transition-all"
+              className="px-6 py-3 bg-blue-600/30 hover:bg-blue-600/40 text-white rounded-lg border border-blue-500/30 transition-all hover:scale-105"
             >
               Tutorial
             </button>

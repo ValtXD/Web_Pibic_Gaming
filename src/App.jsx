@@ -4,6 +4,8 @@ import Auth from './components/auth/Auth';
 import Dashboard from './pages/Dashboard';
 import HomePage from './pages/HomePage';
 import { useAuth } from './hooks/useAuth';
+import Phase1SkinDefense from './pages/levels/Phase1SkinDefense';
+
 
 // Componente de rota protegida - ATUALIZADO
 const ProtectedRoute = ({ children, redirectTo = '/login' }) => {
@@ -49,6 +51,14 @@ function App() {
           element={
             <ProtectedRoute>
               <Dashboard />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/phase1" 
+          element={
+            <ProtectedRoute>
+              <Phase1SkinDefense />
             </ProtectedRoute>
           } 
         />

@@ -84,32 +84,6 @@ export default function SettingsModal({ isOpen, onClose, settings, onSettingsCha
             />
           </div>
 
-          {/* Game Speed */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <Zap className="w-5 h-5 text-emerald-300" />
-              <span className="text-white font-medium">Velocidade do Jogo</span>
-            </div>
-            <div className="grid grid-cols-4 gap-2">
-              {[
-                { value: 0.5, label: '0.5x' },
-                { value: 1, label: '1x' },
-                { value: 1.5, label: '1.5x' },
-                { value: 2, label: '2x' },
-              ].map((speed) => (
-                <button
-                  key={speed.value}
-                  onClick={() => handleGameSpeedChange(speed.value)}
-                  className={`py-3 rounded-lg transition-all ${settings.gameSpeed === speed.value
-                    ? 'bg-emerald-500 text-white shadow-lg'
-                    : 'bg-slate-800/50 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/20'
-                    }`}
-                >
-                  {speed.label}
-                </button>
-              ))}
-            </div>
-          </div>
 
           {/* Outras opções */}
           <div className="space-y-4 pt-4 border-t border-emerald-500/20">
