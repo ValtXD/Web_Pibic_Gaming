@@ -2,21 +2,20 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { savePhase1Score } from './Phase1Database';
+import { savePhase1Score, checkScoresTable } from './Phase1Database';
 import Phase1Tooltip, { TOWER_INFO_PHASE1, ENEMY_INFO_PHASE1 } from './Phase1Components';
 import { 
   Play, Pause, RotateCcw, Trophy, Shield, Zap, 
   Sparkles, AlertTriangle, Heart, Layers,
   Home, Volume2, VolumeX, Star, Target,
-  Activity, FastForward, Info, Crosshair, Microscope, RefreshCw
+  Activity, FastForward, Info, Microscope, RefreshCw
 } from 'lucide-react';
 
+// ... (MANTENHA AS CONSTANTES TOWER_TYPES, ENEMY_TYPES, PATH, ETC. IGUAIS AO SEU CÓDIGO ORIGINAL) ...
 // Configurações do jogo para fase 1 - TELA MAIOR
 const CANVAS_WIDTH = 1200;
 const CANVAS_HEIGHT = 700;
 const CELL_SIZE = 40;
-const GRID_COLS = Math.floor(CANVAS_WIDTH / CELL_SIZE);
-const GRID_ROWS = Math.floor(CANVAS_HEIGHT / CELL_SIZE);
 
 // DEFENSAS DA FASE 1
 const TOWER_TYPES = {
@@ -165,20 +164,19 @@ const ENEMY_TYPES = {
   }
 };
 
-// CAMINHO CENTRALIZADO NO CANVAS - MAIS NO MEIO DA TELA
 const PATH = [
-  { x: 0, y: 350 },               // Entrada pela esquerda no meio
-  { x: 200, y: 350 },             // Continua reto
-  { x: 200, y: 200 },             // Sobe
-  { x: 400, y: 200 },             // Vai para direita
-  { x: 400, y: 500 },             // Desce bastante
-  { x: 600, y: 500 },             // Vai para direita
-  { x: 600, y: 300 },             // Sobe
-  { x: 800, y: 300 },             // Vai para direita
-  { x: 800, y: 400 },             // Desce um pouco
-  { x: 1000, y: 400 },            // Vai para direita
-  { x: 1000, y: 350 },            // Sobe levemente
-  { x: 1200, y: 350 }             // Sai pela direita no meio
+  { x: 0, y: 350 },               
+  { x: 200, y: 350 },             
+  { x: 200, y: 200 },             
+  { x: 400, y: 200 },             
+  { x: 400, y: 500 },             
+  { x: 600, y: 500 },             
+  { x: 600, y: 300 },             
+  { x: 800, y: 300 },             
+  { x: 800, y: 400 },             
+  { x: 1000, y: 400 },            
+  { x: 1000, y: 350 },            
+  { x: 1200, y: 350 }             
 ];
 
 const DIFFICULTY_SETTINGS = {
@@ -284,21 +282,29 @@ export default function Phase1SkinDefense() {
   const [abilityCooldowns, setAbilityCooldowns] = useState({});
   const [clickedTowerId, setClickedTowerId] = useState(null);
 
-  // REFS PARA A FÍSICA DO JOGO (Isso resolve o bug do dano duplo!)
-  // O Loop do jogo lê e escreve AQUI, e depois atualiza o State para pintar a tela.
+  // REFS PARA A FÍSICA E SALVAMENTO (CORREÇÃO DO BUG DE PONTUAÇÃO)
   const towersRef = useRef([]);
   const enemiesRef = useRef([]);
   const projectilesRef = useRef([]);
-  const gameStateRef = useRef('menu'); // Ref para o estado do loop
+  const gameStateRef = useRef('menu');
+  
+  // CORREÇÃO: Refs para valores que mudam durante a rodada e precisam ser salvos
+  const scoreRef = useRef(0);
+  const antigensRef = useRef(0);
+  const healthRef = useRef(100);
 
   // Referência para controlar o estado visual
-  const [renderTrigger, setRenderTrigger] = useState(0); // Trigger para forçar render
+  const [renderTrigger, setRenderTrigger] = useState(0); 
 
   const [difficulty, setDifficulty] = useState(() => {
     const saved = localStorage.getItem('virus-hunter-difficulty');
-    return saved || 'easy';
+    return saved || 'medium';
   });
+  
   const [wallBreaches, setWallBreaches] = useState(0);
+  const [showSaveSuccess, setShowSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+  const [lastSavedScore, setLastSavedScore] = useState(null);
 
   const animationFrameRef = useRef();
   const lastTimeRef = useRef(Date.now());
@@ -307,6 +313,11 @@ export default function Phase1SkinDefense() {
   const waveCompletedRef = useRef(false);
   const gameSettings = DIFFICULTY_SETTINGS[difficulty];
 
+  // Sincronizar State com Refs para garantir salvamento correto
+  useEffect(() => { scoreRef.current = score; }, [score]);
+  useEffect(() => { antigensRef.current = collectedAntigens; }, [collectedAntigens]);
+  useEffect(() => { healthRef.current = health; }, [health]);
+
   useEffect(() => {
     const savedDifficulty = localStorage.getItem('virus-hunter-difficulty');
     if (savedDifficulty && DIFFICULTY_SETTINGS[savedDifficulty]) {
@@ -314,7 +325,6 @@ export default function Phase1SkinDefense() {
     }
   }, []);
 
-  // Sincroniza refs com states iniciais/resets
   useEffect(() => {
       gameStateRef.current = gameState;
   }, [gameState]);
@@ -383,7 +393,7 @@ export default function Phase1SkinDefense() {
     }]);
   };
 
-  // LOOP PRINCIPAL DO JOGO - AGORA BASEADO EM REFS
+  // LOOP PRINCIPAL DO JOGO
   useEffect(() => {
     if (gameState !== 'playing') return;
 
@@ -404,17 +414,14 @@ export default function Phase1SkinDefense() {
         }
       }
 
-      // 2. MOVER INIMIGOS (Usando Refs)
+      // 2. MOVER INIMIGOS
       enemiesRef.current = enemiesRef.current.map(enemy => {
           let updatedEnemy = { ...enemy };
           
-          // Aplicar efeito de slow do Mastócito
           if (updatedEnemy.slowEffect) {
             if (updatedEnemy.slowEffect.expires > now) {
-              // Ainda está com efeito de slow
               updatedEnemy.speed = updatedEnemy.originalSpeed * TOWER_TYPES.MASTOCITO.slowAmount;
             } else {
-              // Efeito expirou
               updatedEnemy.slowEffect = null;
               updatedEnemy.speed = updatedEnemy.originalSpeed;
             }
@@ -424,7 +431,6 @@ export default function Phase1SkinDefense() {
           const nextPoint = PATH[updatedEnemy.pathIndex + 1];
           
           if (!nextPoint) {
-            // Chegou ao fim
             const damage = updatedEnemy.type === 'BIOFILME' ? 20 : 10;
             setHealth(h => {
                 const newH = Math.max(0, h - damage);
@@ -463,7 +469,6 @@ export default function Phase1SkinDefense() {
 
           if (timeSinceLastShot < effectiveFireRate) return tower;
 
-          // Check Active Abilities Buff
           const hasQuimiocinaBuff = Object.entries(activeAbilities).some(([sourceId, ability]) => {
             if (!ability.active || ability.expiresAt < now) return false;
             const sourceTower = towersRef.current.find(t => t.id === sourceId);
@@ -475,7 +480,6 @@ export default function Phase1SkinDefense() {
           });
           const damageMultiplier = hasQuimiocinaBuff ? TOWER_TYPES.QUIMIOCINA.damageBuff : 1;
 
-          // Find Target
           const enemiesInRange = enemiesRef.current.filter(enemy => {
             const dx = enemy.x - tower.x;
             const dy = enemy.y - tower.y;
@@ -488,7 +492,6 @@ export default function Phase1SkinDefense() {
             const finalDamage = towerType.damage * damageMultiplier;
 
             if (towerType.id === 'EOSINOFILO') {
-                // Dano em área
                 enemiesInRange.forEach(enemy => {
                     projectilesRef.current.push({
                         id: Date.now() + Math.random(),
@@ -509,9 +512,7 @@ export default function Phase1SkinDefense() {
                     }]);
                 });
             } else if (towerType.id === 'MASTOCITO') {
-                // MASTÓCITO: Aplica efeito de slow a todos os inimigos em alcance
                 enemiesInRange.forEach(enemy => {
-                  // Aplica slow se não estiver já com efeito
                   if (!enemy.slowEffect || enemy.slowEffect.expires < now) {
                     enemy.slowEffect = {
                       expires: now + TOWER_TYPES.MASTOCITO.slowDuration,
@@ -519,7 +520,6 @@ export default function Phase1SkinDefense() {
                     };
                   }
                   
-                  // Cria projétil visual para o Mastócito
                   projectilesRef.current.push({
                     id: Date.now() + Math.random(),
                     x: tower.x, y: tower.y,
@@ -530,7 +530,6 @@ export default function Phase1SkinDefense() {
                     isMastocito: true
                   });
                   
-                  // Efeito visual de slow
                   setVisualEffects(prev => [...prev, { 
                     id: Math.random(), 
                     type: 'slow', 
@@ -541,7 +540,6 @@ export default function Phase1SkinDefense() {
                   }]);
                 });
             } else {
-                // Tiro Padrão
                 projectilesRef.current.push({
                     id: Date.now() + Math.random(),
                     x: tower.x, y: tower.y,
@@ -556,45 +554,51 @@ export default function Phase1SkinDefense() {
           return tower;
       });
 
-      // 4. MOVER PROJÉTEIS E CHECAR COLISÃO (A LÓGICA CRUCIAL)
+      // 4. MOVER PROJÉTEIS
       projectilesRef.current = projectilesRef.current.map(proj => {
           const target = enemiesRef.current.find(e => e.id === proj.targetId);
-          if (!target) return null; // Alvo sumiu
+          if (!target) return null; 
 
           const dx = target.x - proj.x;
           const dy = target.y - proj.y;
           const distance = Math.sqrt(dx * dx + dy * dy);
 
           if (distance < 10) {
-              // COLISÃO! Aplicar dano AO OBJETO DA REF DIRETAMENTE
-              // Exceto para Mastócito - ele já aplicou slow no passo 3
               if (!proj.isMastocito) {
                 target.health -= proj.damage;
               }
 
               if (target.health <= 0) {
-                  // Inimigo morreu - Marcar para remoção na próxima filtragem de inimigos
-                  // E dar recompensas
                   const enemyTypeData = ENEMY_TYPES[target.type];
                   const reward = target.reward;
                   const atpReward = enemyTypeData?.atpReward || 15;
 
-                  // Atualizar Estados Globais (Seguro aqui, pois o evento ocorre uma vez)
                   setEnergy(e => e + atpReward);
-                  setScore(s => s + reward * wave);
+                  
+                  // CORREÇÃO: Atualizar State normal E Ref para garantir sincronia
+                  setScore(s => {
+                    const newScore = s + reward * wave;
+                    scoreRef.current = newScore; // Força atualização imediata da ref
+                    return newScore;
+                  });
                   
                   setAtpPopups(prev => [...prev, {
                       id: Math.random(), x: target.x, y: target.y, amount: atpReward, color: '#22c55e', duration: 1000
                   }]);
 
-                  // Lógica Dendrítica
                   if (towersRef.current.some(t => t.type === 'DENDRITICA')) {
                       towersRef.current.filter(t => t.type === 'DENDRITICA').forEach(t => {
                           const dist = Math.sqrt(Math.pow(target.x - t.x, 2) + Math.pow(target.y - t.y, 2));
                           if (dist <= TOWER_TYPES.DENDRITICA.range) {
                               const extra = Math.floor(atpReward * TOWER_TYPES.DENDRITICA.antigenMultiplier);
                               setEnergy(e => e + extra);
-                              setCollectedAntigens(c => c + 1);
+                              
+                              setCollectedAntigens(c => {
+                                const newCount = c + 1;
+                                antigensRef.current = newCount; // Força atualização imediata da ref
+                                return newCount;
+                              });
+                              
                               setAtpPopups(prev => [...prev, { 
                                 id: Math.random(), 
                                 x: target.x, 
@@ -607,32 +611,55 @@ export default function Phase1SkinDefense() {
                       });
                   }
               }
-              return null; // Remove projétil
+              return null; 
           }
 
-          // Move
           const speed = proj.speed * gameSpeed;
           proj.x += (dx / distance) * speed;
           proj.y += (dy / distance) * speed;
           return proj;
       }).filter(Boolean);
 
-      // 5. LIMPEZA DE INIMIGOS MORTOS (Baseado na vida atualizada na ref)
       enemiesRef.current = enemiesRef.current.filter(e => e.health > 0);
-
-      // 6. SYNC PARA RENDERIZAÇÃO
-      // Forçamos o React a redesenhar com os dados das Refs
       setRenderTrigger(prev => prev + 1); 
 
-      // 7. CHECAGEM DE VITÓRIA
+      // 7. CHECAGEM DE VITÓRIA (CORRIGIDO PARA USAR REFS)
       if (waveEnemiesSpawnedRef.current >= enemiesPerWave && enemiesRef.current.length === 0 && !waveCompletedRef.current) {
           waveCompletedRef.current = true;
           setTimeout(() => {
               if (wave >= gameSettings.wavesPerPhase) {
-                  const finalScore = score + (collectedAntigens * 50);
-                  const stars = calculateStars();
-                  savePhaseResult(finalScore, stars);
-                  setGameState('victory');
+                  // AQUI ESTAVA O PROBLEMA: Usamos scoreRef.current e antigensRef.current
+                  // Isso garante que usamos o valor MAIS RECENTE da memória, não do closure antigo
+                  const currentScore = scoreRef.current;
+                  const currentAntigens = antigensRef.current;
+                  const currentHealth = healthRef.current;
+                  
+                  const finalScore = currentScore + (currentAntigens * 50);
+                  
+                  // Calcular estrelas aqui mesmo com dados frescos
+                  let calculatedStars = 0;
+                  if (currentHealth >= gameSettings.startingHealth * 0.8) calculatedStars++;
+                  if (wave >= gameSettings.wavesPerPhase) calculatedStars++;
+                  if (currentAntigens >= 10) calculatedStars++;
+                  const stars = Math.min(calculatedStars, 3);
+                  
+                  // Preparar objeto de dados completo
+                  const victoryData = {
+                    score: finalScore,
+                    stars: stars,
+                    health: currentHealth,
+                    antigens: currentAntigens,
+                    enemiesKilled: wave * enemiesPerWave, // Estimativa ou usar ref contador
+                    wave: wave
+                  };
+                  
+                  savePhaseResult(victoryData).then(() => {
+                    setGameState('victory');
+                  }).catch(error => {
+                    console.error('Erro ao salvar, mas continuando para vitória:', error);
+                    setGameState('victory');
+                  });
+                  
               } else {
                   setWave(w => w + 1);
                   waveEnemiesSpawnedRef.current = 0;
@@ -647,9 +674,9 @@ export default function Phase1SkinDefense() {
 
     animationFrameRef.current = requestAnimationFrame(gameLoop);
     return () => cancelAnimationFrame(animationFrameRef.current);
-  }, [gameState, wave, difficulty, gameSpeed]); // Dependências reduzidas pois usamos Refs
+  }, [gameState, wave, difficulty, gameSpeed]); // Deps reduzidas
 
-  // Efeitos Visuais (Separado para limpeza)
+  // Efeitos Visuais
   useEffect(() => {
       const interval = setInterval(() => {
           setVisualEffects(prev => prev.filter(e => {
@@ -662,7 +689,6 @@ export default function Phase1SkinDefense() {
               return p.duration > 0;
           }));
           
-          // Cleanup abilities
           const now = Date.now();
           setActiveAbilities(prev => {
              const next = {...prev};
@@ -684,7 +710,6 @@ export default function Phase1SkinDefense() {
 
     if (gameState !== 'playing') return;
 
-    // Check tower click first (for abilities)
     const clickedTower = towersRef.current.find(tower => {
       const dx = x - tower.x;
       const dy = y - tower.y;
@@ -719,11 +744,10 @@ export default function Phase1SkinDefense() {
           gridY,
           lastShot: 0
         };
-        // Atualiza a Ref imediatamente para a física
         towersRef.current.push(newTower);
         setEnergy(prev => prev - towerType.cost);
         setSelectedTower(null);
-        setRenderTrigger(prev => prev + 1); // Força render
+        setRenderTrigger(prev => prev + 1); 
       }
     }
   };
@@ -762,15 +786,21 @@ export default function Phase1SkinDefense() {
   };
 
   const startGame = () => {
+    console.log('🎮 Iniciando fase: Pele - Barreira Mecânica', { difficulty, user: user?.email });
+    
     setGameState('playing');
     setEnergy(gameSettings.startingEnergy);
     setHealth(gameSettings.startingHealth);
     setWave(1);
     setScore(0);
-    // Reset Refs
+    
+    // Reset Refs e Syncs
     towersRef.current = [];
     enemiesRef.current = [];
     projectilesRef.current = [];
+    scoreRef.current = 0;
+    antigensRef.current = 0;
+    healthRef.current = gameSettings.startingHealth;
     
     setCollectedAntigens(0);
     setWallBreaches(0);
@@ -783,7 +813,11 @@ export default function Phase1SkinDefense() {
     waveEnemiesSpawnedRef.current = 0;
     waveCompletedRef.current = false;
     lastTimeRef.current = Date.now();
-    setGameSpeed(1.0); 
+    setGameSpeed(1.0);
+    
+    setShowSaveSuccess(false);
+    setSaveError(null);
+    setLastSavedScore(null);
   };
 
   const togglePause = () => {
@@ -802,27 +836,91 @@ export default function Phase1SkinDefense() {
     return Math.min(stars, 3);
   };
 
-  const savePhaseResult = async (finalScore, stars) => {
-    if (!user) return;
+  // ATUALIZADO: Agora aceita um objeto de dados (victoryData)
+  const savePhaseResult = async (victoryData) => {
+    if (!user) {
+      console.error('❌ Usuário não autenticado ao salvar pontuação');
+      setSaveError('Usuário não autenticado');
+      return;
+    }
+    
     try {
-      await savePhase1Score({
+      console.log('💾 Salvando resultados da fase...', {
         userId: user.id,
+        userEmail: user.email,
         phase: 1,
         difficulty,
-        score: finalScore,
-        stars,
-        enemiesKilled: wave * 8,
-        wavesCompleted: wave,
-        healthRemaining: health,
-        antigensCollected: collectedAntigens,
-        timeSpent: Math.floor((Date.now() - lastTimeRef.current) / 1000)
+        ...victoryData
       });
+
+      const tableCheck = await checkScoresTable();
+      console.log('📊 Verificação da tabela scores:', tableCheck);
+
+      // Usar os dados passados como argumento, não o estado do componente
+      const saveData = {
+        userId: user.id,
+        userEmail: user.email,
+        userName: user.user_metadata?.name || user.email?.split('@')[0],
+        phase: 1,
+        difficulty: difficulty || 'medium',
+        score: victoryData.score,
+        stars: victoryData.stars,
+        enemiesKilled: victoryData.enemiesKilled,
+        wavesCompleted: victoryData.wave,
+        healthRemaining: victoryData.health,
+        antigensCollected: victoryData.antigens,
+        timeSpent: Math.floor((Date.now() - lastTimeRef.current) / 1000)
+      };
+
+      console.log('📤 Dados para salvar:', saveData);
+
+      const result = await savePhase1Score(saveData);
+
+      if (result.success) {
+        console.log('✅ Resultados salvos com sucesso!', result.data);
+        setShowSaveSuccess(true);
+        setLastSavedScore(victoryData.score);
+        setSaveError(null);
+        
+        setTimeout(() => {
+          setShowSaveSuccess(false);
+        }, 5000);
+        
+      } else {
+        console.error('❌ Falha ao salvar resultados:', result.error);
+        setSaveError(result.error || 'Erro desconhecido ao salvar');
+        setShowSaveSuccess(false);
+        
+        try {
+          const backupKey = 'virus-hunter-scores-backup';
+          const existingBackup = JSON.parse(localStorage.getItem(backupKey) || '[]');
+          
+          const backupData = {
+            ...saveData,
+            backup_saved_at: new Date().toISOString(),
+            error_message: result.error
+          };
+          
+          existingBackup.push(backupData);
+          localStorage.setItem(backupKey, JSON.stringify(existingBackup));
+          
+          console.log('📦 Pontuação salva localmente como backup');
+          setSaveError('Pontuação salva localmente (backup)');
+          
+        } catch (backupError) {
+          console.error('❌ Erro ao salvar backup:', backupError);
+          setSaveError('Falha ao salvar pontuação e backup');
+        }
+      }
+
     } catch (error) {
-      console.error('Erro ao salvar pontuação:', error);
+      console.error('❌ Erro inesperado ao salvar pontuação:', error);
+      setSaveError(error.message || 'Erro inesperado');
+      setShowSaveSuccess(false);
     }
   };
 
-  // Renderização do canvas (Lê das Refs)
+  // Renderização do canvas
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -849,12 +947,12 @@ export default function Phase1SkinDefense() {
       ctx.fill();
     }
 
-    // Ferida - centralizada verticalmente
+    // Ferida
     ctx.fillStyle = 'rgba(220, 100, 100, 0.3)';
     ctx.beginPath(); ctx.arc(50, 350, 30, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = 'rgba(200, 80, 80, 0.6)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(50, 350, 32, 0, Math.PI * 2); ctx.stroke();
 
-    // Caminho - mais centralizado
+    // Caminho
     ctx.strokeStyle = 'rgba(220, 130, 100, 0.4)';
     ctx.lineWidth = 40; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.beginPath();
@@ -864,7 +962,7 @@ export default function Phase1SkinDefense() {
     });
     ctx.stroke();
 
-    // Grade do caminho (opcional)
+    // Grade do caminho
     ctx.strokeStyle = 'rgba(180, 100, 80, 0.2)';
     ctx.lineWidth = 1;
     PATH.forEach((point, i) => {
@@ -888,7 +986,7 @@ export default function Phase1SkinDefense() {
       }
     }
 
-    // Torres (DA REF)
+    // Torres
     towersRef.current.forEach(tower => {
       const towerType = TOWER_TYPES[tower.type];
       const pulse = Math.sin(Date.now() / 300) * 2;
@@ -918,9 +1016,8 @@ export default function Phase1SkinDefense() {
       }
     });
 
-    // Inimigos (DA REF) com efeito de slow do Mastócito
+    // Inimigos
     enemiesRef.current.forEach(enemy => {
-      // Efeito visual de slow (azul) se o inimigo está com slow do Mastócito
       if (enemy.slowEffect && enemy.slowEffect.expires > Date.now()) {
         ctx.strokeStyle = 'rgba(139, 92, 246, 0.6)'; 
         ctx.lineWidth = 3; 
@@ -928,7 +1025,6 @@ export default function Phase1SkinDefense() {
         ctx.arc(enemy.x, enemy.y, enemy.size + 10, 0, Math.PI * 2); 
         ctx.stroke();
         
-        // Desenhar ícone de slow (opcional)
         ctx.fillStyle = 'rgba(139, 92, 246, 0.8)';
         ctx.font = 'bold 10px Arial';
         ctx.textAlign = 'center';
@@ -962,66 +1058,38 @@ export default function Phase1SkinDefense() {
       ctx.fillRect(enemy.x - 20, enemy.y - enemy.size - 10, 40 * healthPercent, 6);
     });
 
-    // Projéteis (DA REF)
+    // Projéteis
     projectilesRef.current.forEach(proj => {
       ctx.fillStyle = proj.color; 
       ctx.shadowColor = proj.color; 
       ctx.shadowBlur = proj.splashDamage ? 10 : 8;
       ctx.beginPath();
       if (proj.splashDamage) { 
-        // Projétil de eosinófilo (maior)
         ctx.arc(proj.x, proj.y, 6, 0, Math.PI * 2); 
       } else if (proj.isMastocito) {
-        // Projétil do mastócito (forma diferente)
         ctx.arc(proj.x, proj.y, 5, 0, Math.PI * 2);
-        // Adicionar um pequeno "traço" para mostrar que é histamina
         ctx.fillStyle = '#a78bfa';
         ctx.fillRect(proj.x - 2, proj.y - 8, 4, 4);
       } else { 
-        // Projétil padrão
         ctx.arc(proj.x, proj.y, 4, 0, Math.PI * 2); 
       }
       ctx.fill(); 
       ctx.shadowBlur = 0;
     });
 
-    // Efeitos visuais
+    // Efeitos visuais e Popups
     visualEffects.forEach(effect => {
       ctx.save();
       switch (effect.type) {
-        case 'slow':
-          ctx.fillStyle = effect.color + '40'; 
-          ctx.beginPath(); 
-          ctx.arc(effect.x, effect.y, 15, 0, Math.PI * 2); 
-          ctx.fill(); 
-          break;
-        case 'buff':
-          ctx.strokeStyle = effect.color; 
-          ctx.lineWidth = 2; 
-          ctx.beginPath(); 
-          ctx.arc(effect.x, effect.y, 20, 0, Math.PI * 2); 
-          ctx.stroke(); 
-          break;
-        case 'explosion':
-          ctx.fillStyle = effect.color + '60'; 
-          ctx.beginPath(); 
-          ctx.arc(effect.x, effect.y, 25, 0, Math.PI * 2); 
-          ctx.fill(); 
-          break;
-        case 'trail':
-          ctx.fillStyle = effect.color + '80'; 
-          ctx.beginPath(); 
-          ctx.arc(effect.x, effect.y, 2, 0, Math.PI * 2); 
-          ctx.fill(); 
-          break;
-        case 'quimiocina_aura':
-          // Aura das quimiocinas já é desenhada com a torre
-          break;
+        case 'slow': ctx.fillStyle = effect.color + '40'; ctx.beginPath(); ctx.arc(effect.x, effect.y, 15, 0, Math.PI * 2); ctx.fill(); break;
+        case 'buff': ctx.strokeStyle = effect.color; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(effect.x, effect.y, 20, 0, Math.PI * 2); ctx.stroke(); break;
+        case 'explosion': ctx.fillStyle = effect.color + '60'; ctx.beginPath(); ctx.arc(effect.x, effect.y, 25, 0, Math.PI * 2); ctx.fill(); break;
+        case 'trail': ctx.fillStyle = effect.color + '80'; ctx.beginPath(); ctx.arc(effect.x, effect.y, 2, 0, Math.PI * 2); ctx.fill(); break;
+        case 'quimiocina_aura': break;
       }
       ctx.restore();
     });
 
-    // Popups de ATP
     atpPopups.forEach(popup => {
       ctx.fillStyle = popup.color || '#22c55e'; 
       ctx.font = 'bold 14px Arial'; 
@@ -1035,13 +1103,104 @@ export default function Phase1SkinDefense() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-rose-50 via-pink-50 to-orange-50 p-4">
       <div className="max-w-[1800px] mx-auto">
+        {/* Mensagens de salvamento */}
+        <AnimatePresence>
+          {showSaveSuccess && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50"
+            >
+              <div className="bg-emerald-500/90 backdrop-blur-sm text-white px-6 py-3 rounded-lg border border-emerald-400 shadow-lg flex items-center gap-3">
+                <Trophy className="w-5 h-5" />
+                <div>
+                  <div className="font-bold">Pontuação salva com sucesso!</div>
+                  <div className="text-sm opacity-90">{lastSavedScore} pontos registrados</div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {saveError && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="fixed top-16 left-1/2 transform -translate-x-1/2 z-50"
+            >
+              <div className="bg-red-500/90 backdrop-blur-sm text-white px-6 py-3 rounded-lg border border-red-400 shadow-lg flex items-center gap-3">
+                <AlertTriangle className="w-5 h-5" />
+                <div className="text-sm">{saveError}</div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Menu Inicial */}
         <AnimatePresence>
           {gameState === 'menu' && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
               <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-8 max-w-2xl w-full border border-emerald-500/30">
-                <div className="text-center mb-8"><div className="inline-block p-4 bg-amber-500/20 rounded-2xl mb-4"><Layers className="w-16 h-16 text-amber-400" /></div><h1 className="text-4xl font-bold text-white mb-2">Fase 1: Pele - Barreira Mecânica</h1><p className="text-emerald-300 mb-4">Dificuldade: <span className="font-bold">{difficulty.toUpperCase()}</span></p><p className="text-gray-300">Defenda a pele rompida contra invasores oportunistas</p></div>
-                <div className="bg-slate-800/50 rounded-xl p-6 mb-8"><h3 className="text-lg font-bold text-white mb-3">Objetivos da Fase</h3><ul className="space-y-2"><li className="flex items-center text-emerald-300"><Shield className="w-4 h-4 mr-2" />Complete {gameSettings.wavesPerPhase} ondas de invasores</li><li className="flex items-center text-blue-300"><Sparkles className="w-4 h-4 mr-2" />Colete antígenos com Células Dendríticas</li><li className="flex items-center text-green-300"><Activity className="w-4 h-4 mr-2" />Use Quimiocinas para buffar suas defesas</li></ul></div>
-                <div className="flex gap-4"><button onClick={startGame} className="flex-1 py-4 bg-gradient-to-r from-emerald-600 to-green-600 text-white font-bold rounded-xl hover:scale-105 transition-all"><Play className="w-5 h-5 inline mr-2" />Iniciar Fase</button><button onClick={returnToDashboard} className="px-6 py-4 bg-slate-700/50 border border-slate-600/50 text-white rounded-xl hover:bg-slate-700 transition-colors"><Home className="w-5 h-5" /></button></div>
+                <div className="text-center mb-8">
+                  <div className="inline-block p-4 bg-amber-500/20 rounded-2xl mb-4">
+                    <Layers className="w-16 h-16 text-amber-400" />
+                  </div>
+                  <h1 className="text-4xl font-bold text-white mb-2">Fase 1: Pele - Barreira Mecânica</h1>
+                  <p className="text-emerald-300 mb-4">
+                    Dificuldade: <span className="font-bold">{difficulty.toUpperCase()}</span>
+                    {user && <span className="ml-4">Jogador: {user.email?.split('@')[0]}</span>}
+                  </p>
+                  <p className="text-gray-300">Defenda a pele rompida contra invasores oportunistas</p>
+                </div>
+                
+                <div className="bg-slate-800/50 rounded-xl p-6 mb-8">
+                  <h3 className="text-lg font-bold text-white mb-3">Objetivos da Fase</h3>
+                  <ul className="space-y-2">
+                    <li className="flex items-center text-emerald-300">
+                      <Shield className="w-4 h-4 mr-2" /> 
+                      Complete {gameSettings.wavesPerPhase} ondas de invasores
+                    </li>
+                    <li className="flex items-center text-blue-300">
+                      <Sparkles className="w-4 h-4 mr-2" /> 
+                      Colete antígenos com Células Dendríticas
+                    </li>
+                    <li className="flex items-center text-green-300">
+                      <Activity className="w-4 h-4 mr-2" /> 
+                      Use Quimiocinas para buffar suas defesas
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="flex gap-4">
+                  <button 
+                    onClick={startGame}
+                    className="flex-1 py-4 bg-gradient-to-r from-emerald-600 to-green-600 text-white font-bold rounded-xl hover:scale-105 transition-all"
+                  >
+                    <Play className="w-5 h-5 inline mr-2" />
+                    Iniciar Fase
+                  </button>
+                  <button 
+                    onClick={returnToDashboard}
+                    className="px-6 py-4 bg-slate-700/50 border border-slate-600/50 text-white rounded-xl hover:bg-slate-700 transition-colors"
+                  >
+                    <Home className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {process.env.NODE_ENV === 'development' && user && (
+                  <div className="mt-6 p-4 bg-slate-800/30 rounded-lg border border-slate-700/50 text-xs">
+                    <div className="text-emerald-300 mb-1">Informações de Debug:</div>
+                    <div className="grid grid-cols-2 gap-2 text-slate-400">
+                      <div>ID: {user.id?.substring(0, 8)}...</div>
+                      <div>Email: {user.email}</div>
+                      <div>Dificuldade: {difficulty}</div>
+                      <div>Energia inicial: {gameSettings.startingEnergy}</div>
+                    </div>
+                  </div>
+                )}
               </div>
             </motion.div>
           )}
@@ -1149,6 +1308,31 @@ export default function Phase1SkinDefense() {
                       {collectedAntigens} (+{collectedAntigens * 50} pontos)
                     </span>
                   </div>
+                  
+                  {/* Informações de salvamento */}
+                  {showSaveSuccess && (
+                    <div className="p-3 bg-emerald-500/20 border border-emerald-500/30 rounded-lg">
+                      <div className="flex items-center gap-2 text-emerald-300">
+                        <Trophy className="w-4 h-4" />
+                        <span className="text-sm font-bold">Pontuação salva com sucesso!</span>
+                      </div>
+                      <div className="text-xs text-emerald-400/80 mt-1">
+                        Sua pontuação foi registrada no seu perfil.
+                      </div>
+                    </div>
+                  )}
+                  
+                  {saveError && (
+                    <div className="p-3 bg-red-500/20 border border-red-500/30 rounded-lg">
+                      <div className="flex items-center gap-2 text-red-300">
+                        <AlertTriangle className="w-4 h-4" />
+                        <span className="text-sm font-bold">Aviso:</span>
+                      </div>
+                      <div className="text-xs text-red-400/80 mt-1">
+                        {saveError}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex gap-3">
@@ -1177,31 +1361,115 @@ export default function Phase1SkinDefense() {
             <div className="bg-slate-900/50 rounded-xl p-3 border border-emerald-800/30 max-w-7xl mx-auto w-full">
               <div className="flex flex-wrap justify-between items-center gap-4">
                 <div className="flex flex-wrap gap-4">
-                  <div className="text-center"><div className="text-xs text-emerald-300">Saúde</div><div className="flex items-center gap-1"><Heart className="w-4 h-4 text-red-400" /><div className="text-xl font-bold text-white">{health}%</div></div></div>
-                  <div className="text-center"><div className="text-xs text-emerald-300">Energia</div><div className="flex items-center gap-1"><Zap className="w-4 h-4 text-yellow-400" /><div className="text-xl font-bold text-white">{energy}</div></div></div>
-                  <div className="text-center"><div className="text-xs text-emerald-300">Onda</div><div className="flex items-center gap-1"><Target className="w-4 h-4 text-purple-400" /><div className="text-xl font-bold text-white">{wave}/{gameSettings.wavesPerPhase}</div></div></div>
-                  <div className="text-center"><div className="text-xs text-emerald-300">Pontos</div><div className="flex items-center gap-1"><Trophy className="w-4 h-4 text-amber-400" /><div className="text-xl font-bold text-white">{score}</div></div></div>
-                  <div className="text-center"><div className="text-xs text-emerald-300">Antígenos</div><div className="flex items-center gap-1"><Sparkles className="w-4 h-4 text-blue-400" /><div className="text-xl font-bold text-white">{collectedAntigens}</div></div></div>
+                  <div className="text-center">
+                    <div className="text-xs text-emerald-300">Saúde</div>
+                    <div className="flex items-center gap-1">
+                      <Heart className="w-4 h-4 text-red-400" />
+                      <div className="text-xl font-bold text-white">{health}%</div>
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-xs text-emerald-300">Energia</div>
+                    <div className="flex items-center gap-1">
+                      <Zap className="w-4 h-4 text-yellow-400" />
+                      <div className="text-xl font-bold text-white">{energy}</div>
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-xs text-emerald-300">Onda</div>
+                    <div className="flex items-center gap-1">
+                      <Target className="w-4 h-4 text-purple-400" />
+                      <div className="text-xl font-bold text-white">{wave}/{gameSettings.wavesPerPhase}</div>
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-xs text-emerald-300">Pontos</div>
+                    <div className="flex items-center gap-1">
+                      <Trophy className="w-4 h-4 text-amber-400" />
+                      <div className="text-xl font-bold text-white">{score}</div>
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-xs text-emerald-300">Antígenos</div>
+                    <div className="flex items-center gap-1">
+                      <Sparkles className="w-4 h-4 text-blue-400" />
+                      <div className="text-xl font-bold text-white">{collectedAntigens}</div>
+                    </div>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => setAudioEnabled(!audioEnabled)} className="p-2 rounded-lg border bg-slate-700/50 border-slate-500/30 text-slate-300">{audioEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}</button>
-                  <button onClick={() => setGameSpeed(prev => prev === 1 ? 1.5 : 1)} className="p-2 rounded-lg border bg-slate-700/50 border-slate-500/30 text-slate-300"><div className="flex items-center gap-1"><FastForward className="w-4 h-4" /><span className="text-xs font-bold">{gameSpeed}x</span></div></button>
-                  <button onClick={togglePause} className="p-2 bg-slate-700/50 border border-slate-600/50 text-white rounded-lg">{gameState === 'playing' ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}</button>
-                  <button onClick={returnToDashboard} className="p-2 bg-red-600/20 border border-red-500/30 text-white rounded-lg"><Home className="w-4 h-4" /></button>
+                  <button 
+                    onClick={() => setAudioEnabled(!audioEnabled)} 
+                    className="p-2 rounded-lg border bg-slate-700/50 border-slate-500/30 text-slate-300"
+                  >
+                    {audioEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                  </button>
+                  <button 
+                    onClick={() => setGameSpeed(prev => prev === 1 ? 1.5 : 1)} 
+                    className="p-2 rounded-lg border bg-slate-700/50 border-slate-500/30 text-slate-300"
+                  >
+                    <div className="flex items-center gap-1">
+                      <FastForward className="w-4 h-4" />
+                      <span className="text-xs font-bold">{gameSpeed}x</span>
+                    </div>
+                  </button>
+                  <button 
+                    onClick={togglePause} 
+                    className="p-2 bg-slate-700/50 border border-slate-600/50 text-white rounded-lg"
+                  >
+                    {gameState === 'playing' ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                  </button>
+                  <button 
+                    onClick={returnToDashboard} 
+                    className="p-2 bg-red-600/20 border border-red-500/30 text-white rounded-lg"
+                  >
+                    <Home className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
             </div>
 
             <div className="flex justify-center items-start gap-4">
               <div className="hidden xl:block w-80 h-[700px] shrink-0">
-                 {leftPanelItem ? (<SideInfoPanel item={leftPanelItem} title="Defesa Selecionada" />) : (<div className="h-full w-full rounded-2xl border border-slate-700/30 bg-slate-900/20 flex items-center justify-center text-slate-600 text-center p-6"><p>Selecione uma Célula de Defesa abaixo para ver os detalhes</p></div>)}
+                 {leftPanelItem ? (
+                   <SideInfoPanel item={leftPanelItem} title="Defesa Selecionada" />
+                 ) : (
+                   <div className="h-full w-full rounded-2xl border border-slate-700/30 bg-slate-900/20 flex items-center justify-center text-slate-600 text-center p-6">
+                     <p>Selecione uma Célula de Defesa abaixo para ver os detalhes</p>
+                   </div>
+                 )}
               </div>
               <div className="relative bg-gradient-to-br from-slate-900/80 to-slate-800/80 rounded-xl p-2 border border-emerald-500/30 shadow-xl shrink-0">
-                <canvas ref={canvasRef} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} onClick={handleCanvasClick} onMouseMove={handleCanvasMove} onMouseLeave={() => { setHoveredCell(null); setHoveredCanvasItem(null); }} className="rounded-lg cursor-crosshair w-full h-auto" style={{ imageRendering: 'crisp-edges' }}/>
-                {gameState === 'paused' && (<div className="absolute inset-0 bg-black/70 flex items-center justify-center rounded-lg"><div className="text-center"><Pause className="w-16 h-16 text-white mx-auto mb-3 opacity-50" /><div className="text-2xl font-bold text-white">JOGO PAUSADO</div></div></div>)}
+                <canvas 
+                  ref={canvasRef} 
+                  width={CANVAS_WIDTH} 
+                  height={CANVAS_HEIGHT} 
+                  onClick={handleCanvasClick} 
+                  onMouseMove={handleCanvasMove} 
+                  onMouseLeave={() => { 
+                    setHoveredCell(null); 
+                    setHoveredCanvasItem(null); 
+                  }} 
+                  className="rounded-lg cursor-crosshair w-full h-auto" 
+                  style={{ imageRendering: 'crisp-edges' }}
+                />
+                {gameState === 'paused' && (
+                  <div className="absolute inset-0 bg-black/70 flex items-center justify-center rounded-lg">
+                    <div className="text-center">
+                      <Pause className="w-16 h-16 text-white mx-auto mb-3 opacity-50" />
+                      <div className="text-2xl font-bold text-white">JOGO PAUSADO</div>
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="hidden xl:block w-80 h-[700px] shrink-0">
-                 {rightPanelItem ? (<SideInfoPanel item={rightPanelItem} title="Invasor Identificado" />) : (<div className="h-full w-full rounded-2xl border border-slate-700/30 bg-slate-900/20 flex items-center justify-center text-slate-600 text-center p-6"><p>Clique em um Invasor abaixo para ver os detalhes</p></div>)}
+                 {rightPanelItem ? (
+                   <SideInfoPanel item={rightPanelItem} title="Invasor Identificado" />
+                 ) : (
+                   <div className="h-full w-full rounded-2xl border border-slate-700/30 bg-slate-900/20 flex items-center justify-center text-slate-600 text-center p-6">
+                     <p>Clique em um Invasor abaixo para ver os detalhes</p>
+                   </div>
+                 )}
               </div>
             </div>
 
@@ -1214,25 +1482,67 @@ export default function Phase1SkinDefense() {
                     const canAfford = energy >= tower.cost;
                     const isSelected = selectedTower === tower.id;
                     return (
-                      <div key={tower.id} className={`p-2 rounded-lg border cursor-pointer transition-all flex flex-col items-center text-center ${isSelected ? 'ring-2 ring-blue-500 bg-blue-500/20' : 'bg-slate-800/50'} ${!canAfford ? 'opacity-50' : ''}`} onClick={() => { if (canAfford) { setSelectedTower(isSelected ? null : tower.id); setLeftPanelItem(isSelected ? null : { ...tower, type: tower.id }); } }}>
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center mb-1" style={{ backgroundColor: tower.color + '20' }}><Icon className="w-5 h-5" style={{ color: tower.color }} /></div>
-                        <div className="text-xs font-semibold text-white leading-tight">{tower.name}</div><div className="text-xs text-emerald-300 mt-1">{tower.cost} ATP</div>
+                      <div 
+                        key={tower.id} 
+                        className={`p-2 rounded-lg border cursor-pointer transition-all flex flex-col items-center text-center ${
+                          isSelected ? 'ring-2 ring-blue-500 bg-blue-500/20' : 'bg-slate-800/50'
+                        } ${!canAfford ? 'opacity-50' : ''}`} 
+                        onClick={() => { 
+                          if (canAfford) { 
+                            setSelectedTower(isSelected ? null : tower.id); 
+                            setLeftPanelItem(isSelected ? null : { ...tower, type: tower.id }); 
+                          } 
+                        }}
+                      >
+                        <div 
+                          className="w-8 h-8 rounded-full flex items-center justify-center mb-1" 
+                          style={{ backgroundColor: tower.color + '20' }}
+                        >
+                          <Icon className="w-5 h-5" style={{ color: tower.color }} />
+                        </div>
+                        <div className="text-xs font-semibold text-white leading-tight">{tower.name}</div>
+                        <div className="text-xs text-emerald-300 mt-1">{tower.cost} ATP</div>
                       </div>
                     );
                   })}
                 </div>
                 <div className="mt-3 flex gap-2">
-                  {Object.values(activeAbilities).some(a => a.active) && (<div className="px-2 py-1 bg-emerald-500/10 rounded flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500" /><span className="text-xs text-emerald-300">Buff Ativo</span></div>)}
-                  {towersRef.current.some(t => t.type === 'DENDRITICA') && (<div className="px-2 py-1 bg-blue-500/10 rounded flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-blue-500" /><span className="text-xs text-blue-300">Coletando</span></div>)}
+                  {Object.values(activeAbilities).some(a => a.active) && (
+                    <div className="px-2 py-1 bg-emerald-500/10 rounded flex items-center gap-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      <span className="text-xs text-emerald-300">Buff Ativo</span>
+                    </div>
+                  )}
+                  {towersRef.current.some(t => t.type === 'DENDRITICA') && (
+                    <div className="px-2 py-1 bg-blue-500/10 rounded flex items-center gap-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                      <span className="text-xs text-blue-300">Coletando</span>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-4 border border-red-500/30">
                 <h3 className="text-sm font-bold text-white mb-2">Invasores - ATP e Informações</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2 h-40 overflow-y-auto pr-2 custom-scrollbar">
                   {Object.values(ENEMY_TYPES).map(enemy => (
-                    <div key={enemy.id} className="flex gap-2 p-2 bg-slate-800/30 rounded-lg hover:bg-slate-800/50 transition-colors cursor-pointer border border-transparent hover:border-red-500/30" onClick={() => { setRightPanelItem(prev => (prev?.id === enemy.id ? null : { ...enemy, type: enemy.id })); }}>
-                      <div className="w-6 h-6 rounded-full flex-shrink-0 mt-1" style={{ backgroundColor: enemy.color }} />
-                      <div><div className="flex justify-between items-center"><span className="text-xs font-bold text-white">{enemy.name}</span><span className="text-xs text-emerald-300">{enemy.atpReward} ATP</span></div><p className="text-[10px] text-gray-500 mt-1">Clique para ver detalhes</p></div>
+                    <div 
+                      key={enemy.id} 
+                      className="flex gap-2 p-2 bg-slate-800/30 rounded-lg hover:bg-slate-800/50 transition-colors cursor-pointer border border-transparent hover:border-red-500/30" 
+                      onClick={() => { 
+                        setRightPanelItem(prev => (prev?.id === enemy.id ? null : { ...enemy, type: enemy.id })); 
+                      }}
+                    >
+                      <div 
+                        className="w-6 h-6 rounded-full flex-shrink-0 mt-1" 
+                        style={{ backgroundColor: enemy.color }} 
+                      />
+                      <div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-bold text-white">{enemy.name}</span>
+                          <span className="text-xs text-emerald-300">{enemy.atpReward} ATP</span>
+                        </div>
+                        <p className="text-[10px] text-gray-500 mt-1">Clique para ver detalhes</p>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1242,9 +1552,16 @@ export default function Phase1SkinDefense() {
         )}
 
         {hoveredCanvasItem && (
-             <div style={{ position: 'fixed', left: tooltipPosition.x, top: tooltipPosition.y, zIndex: 9999, pointerEvents: 'none', transform: 'translate(15px, 15px)' }}>
-                <Phase1Tooltip item={hoveredCanvasItem.item} type={hoveredCanvasItem.type} position={{ x: 0, y: 0 }} />
-             </div>
+          <div style={{ 
+            position: 'fixed', 
+            left: tooltipPosition.x, 
+            top: tooltipPosition.y, 
+            zIndex: 9999, 
+            pointerEvents: 'none', 
+            transform: 'translate(15px, 15px)' 
+          }}>
+            <Phase1Tooltip item={hoveredCanvasItem.item} type={hoveredCanvasItem.type} position={{ x: 0, y: 0 }} />
+          </div>
         )}
       </div>
     </div>
