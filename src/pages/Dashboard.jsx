@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Shield, LogOut, Gamepad2, BarChart3, Lock, Star, Trophy, Medal,
   Layers, Wind, Heart, Brain, Bone, ArrowRight, Volume2, VolumeX, Target, Sparkles,
-  Users, Clock, Award
+  Users, Clock
 } from 'lucide-react';
 
 // Dados das fases do sistema imunológico
@@ -331,22 +331,6 @@ export default function Dashboard() {
     }));
   };
 
-  // Calcular estatísticas do dia
-  const getTodayStats = () => {
-    const today = new Date().toDateString();
-    const todayScores = userScores.filter(score => 
-      new Date(score.created_at).toDateString() === today
-    );
-    
-    return {
-      matches: todayScores.length,
-      score: todayScores.reduce((sum, s) => sum + s.score, 0),
-      stars: todayScores.reduce((sum, s) => sum + s.stars, 0),
-      average: todayScores.length > 0 ? 
-        Math.round(todayScores.reduce((sum, s) => sum + s.score, 0) / todayScores.length) : 0
-    };
-  };
-
   // Se não estiver autenticado OU carregando, mostrar loading
   if (!isAuthenticated || loading) {
     return (
@@ -359,7 +343,6 @@ export default function Dashboard() {
     );
   }
 
-  const todayStats = getTodayStats();
   const wavesCount = getWavesForDifficulty();
 
   return (
@@ -468,33 +451,7 @@ export default function Dashboard() {
             </div>
           </div>
           
-          {/* Estatísticas do dia */}
-          <div className="bg-slate-800/30 rounded-lg p-4 mb-4">
-            <h4 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
-              <Sparkles className="w-4 h-4" />
-              Estatísticas de Hoje
-            </h4>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="p-3 rounded-lg bg-black/20">
-                <div className="text-xs text-slate-400 mb-1">Partidas Hoje</div>
-                <div className="text-xl font-bold text-emerald-400">{todayStats.matches}</div>
-              </div>
-              <div className="p-3 rounded-lg bg-black/20">
-                <div className="text-xs text-slate-400 mb-1">Pontos Hoje</div>
-                <div className="text-xl font-bold text-emerald-400">{todayStats.score}</div>
-              </div>
-              <div className="p-3 rounded-lg bg-black/20">
-                <div className="text-xs text-slate-400 mb-1">Média Hoje</div>
-                <div className="text-xl font-bold text-emerald-400">{todayStats.average}</div>
-              </div>
-              <div className="p-3 rounded-lg bg-black/20">
-                <div className="text-xs text-slate-400 mb-1">Estrelas Hoje</div>
-                <div className="text-xl font-bold text-emerald-400">{todayStats.stars}</div>
-              </div>
-            </div>
-          </div>
-          
-          {/* Últimas partidas */}
+          {/* Últimas partidas - "Estatísticas de Hoje" removido */}
           {userScores.length > 0 && (
             <div>
               <h4 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
@@ -509,7 +466,7 @@ export default function Dashboard() {
                         Fase {score.level_id} • {score.difficulty}
                       </div>
                       <div className="text-xs text-slate-400">
-                        {new Date(score.created_at).toLocaleDateString('pt-BR')} • {score.enemies_killed || 0} eliminados
+                        {new Date(score.created_at).toLocaleDateString('pt-BR')} 
                       </div>
                     </div>
                     <div className="text-right">
@@ -527,9 +484,6 @@ export default function Dashboard() {
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl font-bold text-emerald-300">Selecione a Dificuldade</h3>
-            <div className="text-sm text-emerald-400">
-              {wavesCount} ondas • {selectedDifficulty === 'easy' ? 'Mais fácil' : selectedDifficulty === 'hard' ? 'Desafio máximo' : 'Equilibrado'}
-            </div>
           </div>
           <div className="flex gap-3 flex-wrap">
             {difficulties.map((diff) => (

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   X, Trophy, Star, Medal, Target, Layers, Wind, Heart, Brain, Bone, 
-  Shield, Gamepad2, Calendar, Clock, Skull, Trash2, History, AlertTriangle,
+  Shield, Gamepad2, Calendar, Trash2, History, AlertTriangle,
   ChevronDown, ChevronUp, BarChart
 } from 'lucide-react';
 import { getUserPhaseScores, deleteScore } from '../pages/levels/Phase1Database';
@@ -57,9 +57,7 @@ export default function ScoresModal({ isOpen, onClose }) {
     completedLevels: 0,
     totalMatches: 0,
     bestScore: 0,
-    averageScore: 0,
-    totalEnemiesKilled: 0,
-    totalTimePlayed: 0
+    averageScore: 0
   });
   const [expandedLevels, setExpandedLevels] = useState({});
   const [deletingId, setDeletingId] = useState(null);
@@ -98,8 +96,6 @@ export default function ScoresModal({ isOpen, onClose }) {
       const totalMatches = allScores.length;
       const bestScore = totalMatches > 0 ? Math.max(...allScores.map(s => s.score)) : 0;
       const averageScore = totalMatches > 0 ? Math.round(totalScore / totalMatches) : 0;
-      const totalEnemiesKilled = allScores.reduce((sum, s) => sum + (s.enemies_killed || 0), 0);
-      const totalTimePlayed = allScores.reduce((sum, s) => sum + (s.time_spent || 0), 0);
       
       setStats({
         totalScore,
@@ -107,9 +103,7 @@ export default function ScoresModal({ isOpen, onClose }) {
         completedLevels,
         totalMatches,
         bestScore,
-        averageScore,
-        totalEnemiesKilled,
-        totalTimePlayed
+        averageScore
       });
       
       // Tentar carregar do localStorage se não houver resultados online
@@ -142,9 +136,7 @@ export default function ScoresModal({ isOpen, onClose }) {
           difficulty: backup.difficulty || 'medium',
           score: parseInt(backup.score) || 0,
           stars: parseInt(backup.stars) || 0,
-          enemies_killed: parseInt(backup.enemiesKilled) || 0,
           completed: true,
-          time_spent: parseInt(backup.timeSpent) || 0,
           created_at: backup.backup_saved_at,
           is_backup: true
         }));
@@ -158,18 +150,14 @@ export default function ScoresModal({ isOpen, onClose }) {
         const completedLevels = new Set(allScores.filter(s => s.completed).map(s => s.level_id)).size;
         const bestScore = allScores.length > 0 ? Math.max(...allScores.map(s => s.score)) : 0;
         const averageScore = allScores.length > 0 ? Math.round(totalScore / allScores.length) : 0;
-        const totalEnemiesKilled = allScores.reduce((sum, s) => sum + (s.enemies_killed || 0), 0);
-        const totalTimePlayed = allScores.reduce((sum, s) => sum + (s.time_spent || 0), 0);
         
         setStats({
           totalScore,
           totalStars,
           completedLevels,
-          totalMatches: allScores.length,
+          totalMatches,
           bestScore,
-          averageScore,
-          totalEnemiesKilled,
-          totalTimePlayed
+          averageScore
         });
       }
     } catch (error) {
@@ -339,7 +327,7 @@ export default function ScoresModal({ isOpen, onClose }) {
           {!loading && (
             <>
               {/* Estatísticas principais - SOMAS TOTAIS */}
-              <div className="grid grid-cols-2 md:grid-cols-8 gap-3 mb-8">
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-8">
                 <div className="bg-emerald-500/10 rounded-xl p-4 text-center border border-emerald-500/20">
                   <Target className="w-5 h-5 text-emerald-400 mx-auto mb-2" />
                   <div className="text-xl font-bold text-white">{stats.totalScore}</div>
@@ -369,18 +357,6 @@ export default function ScoresModal({ isOpen, onClose }) {
                   <BarChart className="w-5 h-5 text-green-400 mx-auto mb-2" />
                   <div className="text-xl font-bold text-white">{stats.averageScore}</div>
                   <div className="text-xs text-green-300/70">Média</div>
-                </div>
-                <div className="bg-orange-500/10 rounded-xl p-4 text-center border border-orange-500/20">
-                  <Skull className="w-5 h-5 text-orange-400 mx-auto mb-2" />
-                  <div className="text-xl font-bold text-white">{stats.totalEnemiesKilled}</div>
-                  <div className="text-xs text-orange-300/70">Eliminados</div>
-                </div>
-                <div className="bg-cyan-500/10 rounded-xl p-4 text-center border border-cyan-500/20">
-                  <Clock className="w-5 h-5 text-cyan-400 mx-auto mb-2" />
-                  <div className="text-xl font-bold text-white">
-                    {Math.floor(stats.totalTimePlayed / 60)}:{String(stats.totalTimePlayed % 60).padStart(2, '0')}
-                  </div>
-                  <div className="text-xs text-cyan-300/70">Tempo Total</div>
                 </div>
               </div>
 
@@ -524,14 +500,6 @@ export default function ScoresModal({ isOpen, onClose }) {
                                                 )}
                                               </div>
                                               <div className="flex items-center gap-3 text-xs text-slate-400 mt-1">
-                                                <div className="flex items-center gap-1">
-                                                  <Skull className="w-3 h-3" />
-                                                  <span>{score.enemies_killed || 0} eliminados</span>
-                                                </div>
-                                                <div className="flex items-center gap-1">
-                                                  <Clock className="w-3 h-3" />
-                                                  <span>{Math.floor((score.time_spent || 0) / 60)}:{String((score.time_spent || 0) % 60).padStart(2, '0')}</span>
-                                                </div>
                                                 <div className="flex items-center gap-1">
                                                   <Calendar className="w-3 h-3" />
                                                   <span>{new Date(score.created_at).toLocaleDateString('pt-BR')}</span>

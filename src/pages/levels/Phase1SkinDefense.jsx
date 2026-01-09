@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
@@ -11,13 +11,12 @@ import {
   Activity, FastForward, Info, Microscope, RefreshCw
 } from 'lucide-react';
 
-// ... (MANTENHA AS CONSTANTES TOWER_TYPES, ENEMY_TYPES, PATH, ETC. IGUAIS AO SEU CÓDIGO ORIGINAL) ...
 // Configurações do jogo para fase 1 - TELA MAIOR
 const CANVAS_WIDTH = 1200;
 const CANVAS_HEIGHT = 700;
 const CELL_SIZE = 40;
 
-// DEFENSAS DA FASE 1
+// DEFENSAS DA FASE 1 (MANTIDAS)
 const TOWER_TYPES = {
   MACROFAGO: {
     id: 'MACROFAGO',
@@ -99,7 +98,7 @@ const TOWER_TYPES = {
   }
 };
 
-// INVASORES DA FASE 1
+// INVASORES DA FASE 1 (MANTIDAS)
 const ENEMY_TYPES = {
   BACTERIA_COMENSAL: {
     id: 'BACTERIA_COMENSAL',
@@ -179,10 +178,11 @@ const PATH = [
   { x: 1200, y: 350 }             
 ];
 
+// Configuração atualizada: Energia 500 no Médio, 700 no Difícil
 const DIFFICULTY_SETTINGS = {
   easy: { enemyMultiplier: 1.0, rewardMultiplier: 1.0, startingEnergy: 400, startingHealth: 150, wavesPerPhase: 4, enemySpeedMultiplier: 0.8 },
-  medium: { enemyMultiplier: 1.3, rewardMultiplier: 1.0, startingEnergy: 300, startingHealth: 100, wavesPerPhase: 5, enemySpeedMultiplier: 1.0 },
-  hard: { enemyMultiplier: 1.7, rewardMultiplier: 0.8, startingEnergy: 250, startingHealth: 80, wavesPerPhase: 6, enemySpeedMultiplier: 1.2 }
+  medium: { enemyMultiplier: 1.0, rewardMultiplier: 1.0, startingEnergy: 500, startingHealth: 100, wavesPerPhase: 5, enemySpeedMultiplier: 1.0 }, 
+  hard: { enemyMultiplier: 1.0, rewardMultiplier: 0.8, startingEnergy: 700, startingHealth: 80, wavesPerPhase: 6, enemySpeedMultiplier: 1.0 }
 };
 
 const SideInfoPanel = ({ item, title }) => {
@@ -220,7 +220,7 @@ const SideInfoPanel = ({ item, title }) => {
                 </div>
                 {item.damage !== undefined && <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50 text-center"><span className="text-xs text-slate-400 block mb-1">Dano</span><span className="text-white font-bold font-mono text-lg">{item.damage}</span></div>}
                 {item.health !== undefined && <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50 text-center"><span className="text-xs text-slate-400 block mb-1">Vida</span><span className="text-white font-bold font-mono text-lg">{item.health}</span></div>}
-                {item.speed !== undefined && <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50 text-center"><span className="text-xs text-slate-400 block mb-1">Velocidade</span><span className="text-white font-bold font-mono text-lg">{item.speed}x</span></div>}
+                {item.speed !== undefined && <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50 text-center"><span className="text-xs text-slate-400 block mb-1">Velocidade</span><span className="text-white font-bold font-mono text-lg">{item.speed?.toFixed(1)}x</span></div>}
             </div>
             <div className="space-y-4 mb-4 flex-grow">
               <div><span className="text-xs font-bold text-slate-500 uppercase tracking-wide block mb-1">Habilidade no Jogo</span><p className="text-sm text-slate-300 leading-relaxed">{item.description}</p></div>
@@ -282,13 +282,12 @@ export default function Phase1SkinDefense() {
   const [abilityCooldowns, setAbilityCooldowns] = useState({});
   const [clickedTowerId, setClickedTowerId] = useState(null);
 
-  // REFS PARA A FÍSICA E SALVAMENTO (CORREÇÃO DO BUG DE PONTUAÇÃO)
+  // REFS PARA A FÍSICA E SALVAMENTO
   const towersRef = useRef([]);
   const enemiesRef = useRef([]);
   const projectilesRef = useRef([]);
   const gameStateRef = useRef('menu');
   
-  // CORREÇÃO: Refs para valores que mudam durante a rodada e precisam ser salvos
   const scoreRef = useRef(0);
   const antigensRef = useRef(0);
   const healthRef = useRef(100);
@@ -329,21 +328,81 @@ export default function Phase1SkinDefense() {
       gameStateRef.current = gameState;
   }, [gameState]);
 
-  const spawnEnemy = () => {
-    const enemyList = Object.values(ENEMY_TYPES);
-    const maxEnemyIndex = Math.min(wave, enemyList.length) - 1;
-    const typeIndex = Math.floor(Math.random() * (maxEnemyIndex + 1));
-    const enemyType = enemyList[typeIndex];
+  // Função encapsulada com useCallback para resolver dependência do useEffect
+  const spawnEnemy = useCallback(() => {
+    // Lista de todos os tipos de inimigos
+    const enemyListAll = Object.values(ENEMY_TYPES);
     
-    const difficultyMultiplier = gameSettings.enemyMultiplier;
-    const speedMultiplier = gameSettings.enemySpeedMultiplier;
+    // IA ESTRATÉGICA PARA O MODO DIFÍCIL
+    let enemyType;
     
+    if (difficulty === 'hard') {
+        // IA Decide com base no progresso
+        // Se a saúde estiver baixa (<40%), manda inimigos rápidos (Vírus) para finalizar
+        // Se a energia estiver alta (>600), manda inimigos tanques (Biofilme/Esporo) para drenar recursos
+        // Caso contrário, mistura com pesos baseados na onda
+        
+        const currentHealth = healthRef.current;
+        const currentEnergy = energy; // Note: energy state pode ter um pequeno delay em relação à ref, mas aceitável aqui
+        
+        const chance = Math.random();
+        
+        if (currentHealth < 40 && chance > 0.3) {
+            enemyType = ENEMY_TYPES.VIRUS_ENTRADA; // Estratégia de finalização
+        } else if (currentEnergy > 600 && chance > 0.4) {
+            enemyType = chance > 0.7 ? ENEMY_TYPES.BIOFILME : ENEMY_TYPES.ESPORO_FUNGICO; // Estratégia de tanque
+        } else {
+             // Progressão normal ponderada pela onda no modo difícil
+             const maxIndex = Math.min(wave, enemyListAll.length) - 1;
+             // Chance maior de inimigos mais fortes
+             const skewedIndex = Math.floor(Math.pow(Math.random(), 0.5) * (maxIndex + 1));
+             enemyType = enemyListAll[Math.min(skewedIndex, maxIndex)];
+        }
+    } else {
+        // Lógica padrão para Fácil/Médio
+        const maxEnemyIndex = Math.min(wave, enemyListAll.length) - 1;
+        const typeIndex = Math.floor(Math.random() * (maxEnemyIndex + 1));
+        enemyType = enemyListAll[typeIndex];
+    }
+    
+    // Calcular estatísticas base (sem multiplicadores globais, faremos aditivo)
+    // Usando 1.0 como base nos settings para medio/dificil para facilitar a soma
+    let calculatedHealth = enemyType.health;
+    let calculatedSpeed = enemyType.speed;
+
+    // APLICAÇÃO DE DIFICULDADE (Lógica Aditiva)
+    if (difficulty === 'medium') {
+      calculatedHealth += 20;
+      calculatedSpeed += 0.5;
+    } else if (difficulty === 'hard') {
+      // Médio (+20) + 30 = +50
+      calculatedHealth += 50; 
+      // Médio (+0.5) + 0.5 = +1.0
+      calculatedSpeed += 1.0;
+    } else {
+       // Fácil usa multiplicadores do settings (0.8x speed etc)
+       calculatedHealth = Math.floor(enemyType.health * gameSettings.enemyMultiplier);
+       calculatedSpeed = enemyType.speed * gameSettings.enemySpeedMultiplier;
+    }
+
+    // LÓGICA DE MUTAÇÃO (Apenas Difícil)
+    let isMutated = false;
+    if (difficulty === 'hard') {
+        // 30% de chance de mutação
+        if (Math.random() < 0.3) {
+            isMutated = true;
+            // Dobro da vida atual do modo difícil
+            calculatedHealth = calculatedHealth * 2;
+            // Velocidade permanece a mesma (já somada +1.0)
+        }
+    }
+
     const newEnemy = {
       id: Date.now() + Math.random(),
       type: enemyType.id,
-      health: Math.floor(enemyType.health * difficultyMultiplier),
-      maxHealth: Math.floor(enemyType.health * difficultyMultiplier),
-      speed: enemyType.speed * speedMultiplier,
+      health: calculatedHealth,
+      maxHealth: calculatedHealth,
+      speed: calculatedSpeed,
       reward: Math.floor(enemyType.reward * gameSettings.rewardMultiplier),
       color: enemyType.color,
       size: enemyType.size,
@@ -352,14 +411,97 @@ export default function Phase1SkinDefense() {
       y: PATH[0].y,
       progress: 0,
       slowEffect: null,
-      originalSpeed: enemyType.speed * speedMultiplier,
+      originalSpeed: calculatedSpeed,
       toxinDebuff: enemyType.id === 'TOXINA',
+      isMutated: isMutated // Nova propriedade
     };
     
     enemiesRef.current.push(newEnemy);
-  };
+  }, [wave, gameSettings, difficulty, energy]); // Dependências do useCallback
 
-  const activateQuimiocinaAbility = (towerId) => {
+  // Função encapsulada com useCallback
+  const savePhaseResult = useCallback(async (victoryData) => {
+    if (!user) {
+      console.error('❌ Usuário não autenticado ao salvar pontuação');
+      setSaveError('Usuário não autenticado');
+      return;
+    }
+    
+    try {
+      console.log('💾 Salvando resultados da fase...', {
+        userId: user.id,
+        userEmail: user.email,
+        phase: 1,
+        difficulty,
+        ...victoryData
+      });
+
+      const tableCheck = await checkScoresTable();
+      console.log('📊 Verificação da tabela scores:', tableCheck);
+
+      const saveData = {
+        userId: user.id,
+        userEmail: user.email,
+        userName: user.user_metadata?.name || user.email?.split('@')[0],
+        phase: 1,
+        difficulty: difficulty || 'medium',
+        score: victoryData.score,
+        stars: victoryData.stars,
+        enemiesKilled: victoryData.enemiesKilled,
+        wavesCompleted: victoryData.wave,
+        healthRemaining: victoryData.health,
+        antigensCollected: victoryData.antigens,
+        timeSpent: Math.floor((Date.now() - lastTimeRef.current) / 1000)
+      };
+
+      const result = await savePhase1Score(saveData);
+
+      if (result.success) {
+        console.log('✅ Resultados salvos com sucesso!', result.data);
+        setShowSaveSuccess(true);
+        setLastSavedScore(victoryData.score);
+        setSaveError(null);
+        
+        setTimeout(() => {
+          setShowSaveSuccess(false);
+        }, 5000);
+        
+      } else {
+        console.error('❌ Falha ao salvar resultados:', result.error);
+        setSaveError(result.error || 'Erro desconhecido ao salvar');
+        setShowSaveSuccess(false);
+        
+        try {
+          const backupKey = 'virus-hunter-scores-backup';
+          const existingBackup = JSON.parse(localStorage.getItem(backupKey) || '[]');
+          
+          const backupData = {
+            ...saveData,
+            backup_saved_at: new Date().toISOString(),
+            error_message: result.error
+          };
+          
+          existingBackup.push(backupData);
+          localStorage.setItem(backupKey, JSON.stringify(existingBackup));
+          
+          console.log('📦 Pontuação salva localmente como backup');
+          setSaveError('Pontuação salva localmente (backup)');
+          
+        } catch (backupError) {
+          console.error('❌ Erro ao salvar backup:', backupError);
+          setSaveError('Falha ao salvar pontuação e backup');
+        }
+      }
+
+    } catch (error) {
+      console.error('❌ Erro inesperado ao salvar pontuação:', error);
+      setSaveError(error.message || 'Erro inesperado');
+      setShowSaveSuccess(false);
+    }
+  }, [user, difficulty]); // Dependências do useCallback
+
+  // Encapsulado com useCallback
+  const activateQuimiocinaAbility = useCallback((towerId) => {
     const tower = towersRef.current.find(t => t.id === towerId);
     if (!tower || TOWER_TYPES[tower.type].id !== 'QUIMIOCINA') return;
     
@@ -391,7 +533,7 @@ export default function Phase1SkinDefense() {
       color: towerType.auraColor,
       duration: towerType.abilityDuration
     }]);
-  };
+  }, [abilityCooldowns]); 
 
   // LOOP PRINCIPAL DO JOGO
   useEffect(() => {
@@ -575,10 +717,10 @@ export default function Phase1SkinDefense() {
 
                   setEnergy(e => e + atpReward);
                   
-                  // CORREÇÃO: Atualizar State normal E Ref para garantir sincronia
+                  // Atualizar pontuação e Refs
                   setScore(s => {
                     const newScore = s + reward * wave;
-                    scoreRef.current = newScore; // Força atualização imediata da ref
+                    scoreRef.current = newScore;
                     return newScore;
                   });
                   
@@ -595,7 +737,7 @@ export default function Phase1SkinDefense() {
                               
                               setCollectedAntigens(c => {
                                 const newCount = c + 1;
-                                antigensRef.current = newCount; // Força atualização imediata da ref
+                                antigensRef.current = newCount;
                                 return newCount;
                               });
                               
@@ -623,40 +765,36 @@ export default function Phase1SkinDefense() {
       enemiesRef.current = enemiesRef.current.filter(e => e.health > 0);
       setRenderTrigger(prev => prev + 1); 
 
-      // 7. CHECAGEM DE VITÓRIA (CORRIGIDO PARA USAR REFS)
+      // 7. CHECAGEM DE VITÓRIA
       if (waveEnemiesSpawnedRef.current >= enemiesPerWave && enemiesRef.current.length === 0 && !waveCompletedRef.current) {
           waveCompletedRef.current = true;
           setTimeout(() => {
               if (wave >= gameSettings.wavesPerPhase) {
-                  // AQUI ESTAVA O PROBLEMA: Usamos scoreRef.current e antigensRef.current
-                  // Isso garante que usamos o valor MAIS RECENTE da memória, não do closure antigo
                   const currentScore = scoreRef.current;
                   const currentAntigens = antigensRef.current;
                   const currentHealth = healthRef.current;
                   
-                  const finalScore = currentScore + (currentAntigens * 50);
+                  const finalScore = currentScore;
                   
-                  // Calcular estrelas aqui mesmo com dados frescos
                   let calculatedStars = 0;
                   if (currentHealth >= gameSettings.startingHealth * 0.8) calculatedStars++;
                   if (wave >= gameSettings.wavesPerPhase) calculatedStars++;
                   if (currentAntigens >= 10) calculatedStars++;
                   const stars = Math.min(calculatedStars, 3);
                   
-                  // Preparar objeto de dados completo
                   const victoryData = {
                     score: finalScore,
                     stars: stars,
                     health: currentHealth,
                     antigens: currentAntigens,
-                    enemiesKilled: wave * enemiesPerWave, // Estimativa ou usar ref contador
+                    enemiesKilled: wave * enemiesPerWave,
                     wave: wave
                   };
                   
                   savePhaseResult(victoryData).then(() => {
                     setGameState('victory');
                   }).catch(error => {
-                    console.error('Erro ao salvar, mas continuando para vitória:', error);
+                    console.error('Erro ao salvar:', error);
                     setGameState('victory');
                   });
                   
@@ -674,7 +812,7 @@ export default function Phase1SkinDefense() {
 
     animationFrameRef.current = requestAnimationFrame(gameLoop);
     return () => cancelAnimationFrame(animationFrameRef.current);
-  }, [gameState, wave, difficulty, gameSpeed]); // Deps reduzidas
+  }, [gameState, wave, difficulty, gameSpeed, activeAbilities, gameSettings, savePhaseResult, spawnEnemy]); // Deps atualizadas
 
   // Efeitos Visuais
   useEffect(() => {
@@ -836,90 +974,6 @@ export default function Phase1SkinDefense() {
     return Math.min(stars, 3);
   };
 
-  // ATUALIZADO: Agora aceita um objeto de dados (victoryData)
-  const savePhaseResult = async (victoryData) => {
-    if (!user) {
-      console.error('❌ Usuário não autenticado ao salvar pontuação');
-      setSaveError('Usuário não autenticado');
-      return;
-    }
-    
-    try {
-      console.log('💾 Salvando resultados da fase...', {
-        userId: user.id,
-        userEmail: user.email,
-        phase: 1,
-        difficulty,
-        ...victoryData
-      });
-
-      const tableCheck = await checkScoresTable();
-      console.log('📊 Verificação da tabela scores:', tableCheck);
-
-      // Usar os dados passados como argumento, não o estado do componente
-      const saveData = {
-        userId: user.id,
-        userEmail: user.email,
-        userName: user.user_metadata?.name || user.email?.split('@')[0],
-        phase: 1,
-        difficulty: difficulty || 'medium',
-        score: victoryData.score,
-        stars: victoryData.stars,
-        enemiesKilled: victoryData.enemiesKilled,
-        wavesCompleted: victoryData.wave,
-        healthRemaining: victoryData.health,
-        antigensCollected: victoryData.antigens,
-        timeSpent: Math.floor((Date.now() - lastTimeRef.current) / 1000)
-      };
-
-      console.log('📤 Dados para salvar:', saveData);
-
-      const result = await savePhase1Score(saveData);
-
-      if (result.success) {
-        console.log('✅ Resultados salvos com sucesso!', result.data);
-        setShowSaveSuccess(true);
-        setLastSavedScore(victoryData.score);
-        setSaveError(null);
-        
-        setTimeout(() => {
-          setShowSaveSuccess(false);
-        }, 5000);
-        
-      } else {
-        console.error('❌ Falha ao salvar resultados:', result.error);
-        setSaveError(result.error || 'Erro desconhecido ao salvar');
-        setShowSaveSuccess(false);
-        
-        try {
-          const backupKey = 'virus-hunter-scores-backup';
-          const existingBackup = JSON.parse(localStorage.getItem(backupKey) || '[]');
-          
-          const backupData = {
-            ...saveData,
-            backup_saved_at: new Date().toISOString(),
-            error_message: result.error
-          };
-          
-          existingBackup.push(backupData);
-          localStorage.setItem(backupKey, JSON.stringify(existingBackup));
-          
-          console.log('📦 Pontuação salva localmente como backup');
-          setSaveError('Pontuação salva localmente (backup)');
-          
-        } catch (backupError) {
-          console.error('❌ Erro ao salvar backup:', backupError);
-          setSaveError('Falha ao salvar pontuação e backup');
-        }
-      }
-
-    } catch (error) {
-      console.error('❌ Erro inesperado ao salvar pontuação:', error);
-      setSaveError(error.message || 'Erro inesperado');
-      setShowSaveSuccess(false);
-    }
-  };
-
   // Renderização do canvas
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1018,6 +1072,18 @@ export default function Phase1SkinDefense() {
 
     // Inimigos
     enemiesRef.current.forEach(enemy => {
+      // EFEITO VISUAL DE MUTAÇÃO (AURA ROXA)
+      if (enemy.isMutated) {
+          ctx.shadowBlur = 15;
+          ctx.shadowColor = '#8b5cf6'; // Roxo neon
+          ctx.strokeStyle = '#8b5cf6';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(enemy.x, enemy.y, enemy.size + 5, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.shadowBlur = 0; // Reset
+      }
+
       if (enemy.slowEffect && enemy.slowEffect.expires > Date.now()) {
         ctx.strokeStyle = 'rgba(139, 92, 246, 0.6)'; 
         ctx.lineWidth = 3; 
@@ -1086,6 +1152,7 @@ export default function Phase1SkinDefense() {
         case 'explosion': ctx.fillStyle = effect.color + '60'; ctx.beginPath(); ctx.arc(effect.x, effect.y, 25, 0, Math.PI * 2); ctx.fill(); break;
         case 'trail': ctx.fillStyle = effect.color + '80'; ctx.beginPath(); ctx.arc(effect.x, effect.y, 2, 0, Math.PI * 2); ctx.fill(); break;
         case 'quimiocina_aura': break;
+        default: break; // Case default adicionado
       }
       ctx.restore();
     });
@@ -1232,10 +1299,6 @@ export default function Phase1SkinDefense() {
                     <span className="text-gray-300">Onda alcançada:</span>
                     <span className="text-xl font-bold text-yellow-400">{wave}/{gameSettings.wavesPerPhase}</span>
                   </div>
-                  <div className="flex justify-between items-center p-3 bg-slate-800/50 rounded-lg">
-                    <span className="text-gray-300">Antígenos coletados:</span>
-                    <span className="text-xl font-bold text-blue-400">{collectedAntigens}</span>
-                  </div>
                 </div>
 
                 <div className="flex gap-3">
@@ -1280,7 +1343,7 @@ export default function Phase1SkinDefense() {
                   <div className="flex justify-between items-center p-3 bg-slate-800/50 rounded-lg">
                     <span className="text-gray-300">Pontuação Final:</span>
                     <span className="text-2xl font-bold text-emerald-400">
-                      {score + (collectedAntigens * 50)}
+                      {score}
                     </span>
                   </div>
                   <div className="flex justify-between items-center p-3 bg-slate-800/50 rounded-lg">
@@ -1301,12 +1364,6 @@ export default function Phase1SkinDefense() {
                   <div className="flex justify-between items-center p-3 bg-slate-800/50 rounded-lg">
                     <span className="text-gray-300">Saúde restante:</span>
                     <span className="text-xl font-bold text-green-400">{health}%</span>
-                  </div>
-                  <div className="flex justify-between items-center p-3 bg-slate-800/50 rounded-lg">
-                    <span className="text-gray-300">Antígenos coletados:</span>
-                    <span className="text-xl font-bold text-blue-400">
-                      {collectedAntigens} (+{collectedAntigens * 50} pontos)
-                    </span>
                   </div>
                   
                   {/* Informações de salvamento */}
@@ -1387,13 +1444,6 @@ export default function Phase1SkinDefense() {
                     <div className="flex items-center gap-1">
                       <Trophy className="w-4 h-4 text-amber-400" />
                       <div className="text-xl font-bold text-white">{score}</div>
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-xs text-emerald-300">Antígenos</div>
-                    <div className="flex items-center gap-1">
-                      <Sparkles className="w-4 h-4 text-blue-400" />
-                      <div className="text-xl font-bold text-white">{collectedAntigens}</div>
                     </div>
                   </div>
                 </div>
@@ -1524,27 +1574,49 @@ export default function Phase1SkinDefense() {
               <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-4 border border-red-500/30">
                 <h3 className="text-sm font-bold text-white mb-2">Invasores - ATP e Informações</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2 h-40 overflow-y-auto pr-2 custom-scrollbar">
-                  {Object.values(ENEMY_TYPES).map(enemy => (
-                    <div 
-                      key={enemy.id} 
-                      className="flex gap-2 p-2 bg-slate-800/30 rounded-lg hover:bg-slate-800/50 transition-colors cursor-pointer border border-transparent hover:border-red-500/30" 
-                      onClick={() => { 
-                        setRightPanelItem(prev => (prev?.id === enemy.id ? null : { ...enemy, type: enemy.id })); 
-                      }}
-                    >
+                  {Object.values(ENEMY_TYPES).map(enemy => {
+                    // CÁLCULO DE ESTATÍSTICAS PARA EXIBIÇÃO NO PAINEL DIREITO
+                    let displayHealth = Math.floor(enemy.health * gameSettings.enemyMultiplier);
+                    let displaySpeed = enemy.speed * gameSettings.enemySpeedMultiplier;
+
+                    // Adição direta para Médio e Difícil (Baseado na lógica de Spawn)
+                    if (difficulty === 'medium') {
+                      displayHealth = enemy.health + 20;
+                      displaySpeed = enemy.speed + 0.5;
+                    } else if (difficulty === 'hard') {
+                      displayHealth = enemy.health + 50; // Médio(+20) + 30
+                      displaySpeed = enemy.speed + 1.0; // Médio(+0.5) + 0.5
+                    }
+
+                    const enemyWithStats = { 
+                      ...enemy, 
+                      type: enemy.id,
+                      health: displayHealth,
+                      speed: displaySpeed
+                    };
+
+                    return (
                       <div 
-                        className="w-6 h-6 rounded-full flex-shrink-0 mt-1" 
-                        style={{ backgroundColor: enemy.color }} 
-                      />
-                      <div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs font-bold text-white">{enemy.name}</span>
-                          <span className="text-xs text-emerald-300">{enemy.atpReward} ATP</span>
+                        key={enemy.id} 
+                        className="flex gap-2 p-2 bg-slate-800/30 rounded-lg hover:bg-slate-800/50 transition-colors cursor-pointer border border-transparent hover:border-red-500/30" 
+                        onClick={() => { 
+                          setRightPanelItem(prev => (prev?.id === enemy.id ? null : enemyWithStats)); 
+                        }}
+                      >
+                        <div 
+                          className="w-6 h-6 rounded-full flex-shrink-0 mt-1" 
+                          style={{ backgroundColor: enemy.color }} 
+                        />
+                        <div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs font-bold text-white">{enemy.name}</span>
+                            <span className="text-xs text-emerald-300">{enemy.atpReward} ATP</span>
+                          </div>
+                          <p className="text-[10px] text-gray-500 mt-1">Clique para ver detalhes</p>
                         </div>
-                        <p className="text-[10px] text-gray-500 mt-1">Clique para ver detalhes</p>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>
